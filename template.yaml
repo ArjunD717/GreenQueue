@@ -55,6 +55,8 @@ Resources:
       ContentUri: src/planner_layer/
       CompatibleRuntimes:
         - python3.12
+    Metadata:
+      BuildMethod: python3.12
 
   HttpApi:
     Type: AWS::Serverless::HttpApi

@@ -480,14 +480,26 @@
 
     .strip-highlight {
       position: absolute;
-      top: -3px;
-      bottom: -1px;
-      border-left: 1px solid var(--accent);
-      border-right: 1px solid var(--accent);
-      border-radius: 2px;
-      background: linear-gradient(to bottom, rgba(154, 217, 248, 0.12), transparent 78%);
+      bottom: -2px;
+      height: 4px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 10px rgba(154, 217, 248, 0.25);
       pointer-events: none;
     }
+
+    .strip-highlight::before,
+    .strip-highlight::after {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      width: 1px;
+      height: 9px;
+      background: var(--accent);
+    }
+
+    .strip-highlight::before { left: 0; }
+    .strip-highlight::after { right: 0; }
 
     .strip-foot {
       display: flex;
@@ -2276,7 +2288,9 @@
 
         els.strip.setAttribute(
           "aria-label",
-          `Intensity over the next 24 hours. Cleanest ${Math.round(cleanest.intensity)} grams per kilowatt hour; highest ${Math.round(dirtiest.intensity)}.`
+          best
+            ? `Intensity over the next 24 hours. Cleanest window ${formatWindow(best.start, best.end)}, averaging ${Math.round(best.average)} grams per kilowatt hour. Highest ${Math.round(dirtiest.intensity)}.`
+            : `Intensity over the next 24 hours. Cleanest ${Math.round(cleanest.intensity)} grams per kilowatt hour; highest ${Math.round(dirtiest.intensity)}.`
         );
         els.stripLow.textContent = `Cleanest ${Math.round(cleanest.intensity)} g`;
         els.stripHigh.textContent = `Highest ${Math.round(dirtiest.intensity)} g`;

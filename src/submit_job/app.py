@@ -7,6 +7,7 @@ import math
 import os
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 
 import boto3
 from botocore.exceptions import ClientError
@@ -78,6 +79,24 @@ def _validate(payload: dict) -> tuple[dict, dict]:
     return {"name": name, "duration": duration, "deadline": deadline}, errors
 
 
+def _for_dynamodb(job: dict) -> dict:
+    """boto3's resource API requires Decimal instead of float."""
+    numeric_fields = (
+        "duration",
+        "avg_intensity",
+        "immediate_intensity",
+        "energy_kwh",
+        "co2_now",
+        "co2_scheduled",
+        "co2_saved",
+        "reduction_pct",
+    )
+    item = dict(job)
+    for field in numeric_fields:
+        item[field] = Decimal(str(job[field]))
+    return item
+
+
 def handler(event, context):
     try:
         payload = _read_payload(event)
@@ -128,7 +147,7 @@ def handler(event, context):
     }
 
     try:
-        TABLE.put_item(Item=job)
+        TABLE.put_item(Item=_for_dynamodb(job))
     except ClientError:
         logger.exception("put_item failed for %s", job_id)
         return error_response(500, "STORAGE_ERROR", "The job could not be saved.")

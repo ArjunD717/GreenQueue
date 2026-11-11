@@ -1451,7 +1451,7 @@
           <h2 id="forecast-title">Carbon intensity, next 48 hours</h2>
           <p>Each point is a half-hour. The line carries the intensity colour; dots show where jobs have been placed inside this window.</p>
         </div>
-        <div class="scale" aria-label="Intensity scale in grams of CO2 per kilowatt hour">
+        <div class="scale" role="group" aria-label="Intensity scale in grams of CO2 per kilowatt hour">
           <span><i class="swatch" style="background:var(--low)"></i>Low</span>
           <span><i class="swatch" style="background:var(--moderate)"></i>Moderate</span>
           <span><i class="swatch" style="background:var(--high)"></i>High</span>
@@ -1659,7 +1659,6 @@
       };
 
       const state = {
-        apiReady: LIVE_API,
         demoMode: false,
         previewReason: "",
         forecast: null,

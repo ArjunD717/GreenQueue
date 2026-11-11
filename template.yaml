@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  GreenQueue: a carbon-aware serverless batch scheduler. API Gateway HTTP API,
+  four Python 3.12 Lambdas, DynamoDB, an EventBridge tick, and an S3-hosted
+  dashboard. Everything fits in the AWS free tier at demo volume.
+
+Parameters:
+  MockMode:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >
+      true uses a deterministic synthetic forecast for a reliable demo.
+      false uses the live UK Carbon Intensity API, falling back to synthetic
+      data if the API is unavailable.
+  AllowedOrigin:
+    Type: String
+    Default: "*"
+    Description: Value for API CORS. "*" is convenient for a public demo.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+    MemorySize: 256
+    Timeout: 20
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref JobsTable
+        MOCK_MODE: !Ref MockMode
+        ALLOWED_ORIGIN: !Ref AllowedOrigin
+
+Resources:
+  JobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: GreenQueueJobs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+
+  PlannerLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: greenqueue-planner
+      Description: Shared carbon planner and response helpers
+      ContentUri: src/planner_layer/
+      CompatibleRuntimes:
+        - python3.12
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Description: GreenQueue public API
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref AllowedOrigin
+        AllowHeaders:
+          - Content-Type
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        MaxAge: 3600
+
+  SubmitJobFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: greenqueue-submit-job
+      Description: Validate a job and place it in the cleanest forecast window
+      CodeUri: src/submit_job/
+      Handler: app.handler
+      Layers:
+        - !Ref PlannerLayer
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt JobsTable.Arn
+      Events:
+        SubmitJob:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /jobs
+            Method: POST
+
+  GetJobsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: greenqueue-get-jobs
+      Description: List scheduled jobs for the dashboard
+      CodeUri: src/get_jobs/
+      Handler: app.handler
+      Layers:
+        - !Ref PlannerLayer
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+              Resource: !GetAtt JobsTable.Arn
+      Events:
+        GetJobs:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /jobs
+            Method: GET
+
+  GetForecastFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: greenqueue-get-forecast
+      Description: Return the 48-hour grid carbon forecast
+      CodeUri: src/get_forecast/
+      Handler: app.handler
+      Layers:
+        - !Ref PlannerLayer
+      Events:
+        GetForecast:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /forecast
+            Method: GET
+
+  RunnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: greenqueue-runner
+      Description: Transition due jobs through RUNNING and COMPLETED
+      CodeUri: src/runner/
+      Handler: app.handler
+      Timeout: 30
+      Layers:
+        - !Ref PlannerLayer
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+                - dynamodb:UpdateItem
+              Resource: !GetAtt JobsTable.Arn
+      Events:
+        EveryMinute:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 minute)
+            Description: Check for jobs whose scheduled window has opened
+            Enabled: true
+
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadForWebsite
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${WebsiteBucket}/*"
+
+Outputs:
+  ApiUrl:
+    Description: Base URL for the GreenQueue HTTP API
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+  WebsiteUrl:
+    Description: Public dashboard URL
+    Value: !GetAtt WebsiteBucket.WebsiteURL
+  WebsiteBucketName:
+    Description: Bucket that receives the dashboard build
+    Value: !Ref WebsiteBucket
+  JobsTableName:
+    Description: DynamoDB table used by the seed script
+    Value: !Ref JobsTable

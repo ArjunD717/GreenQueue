@@ -1,0 +1,8 @@
+.aws-sam/
+.tmp-skills/
+.build-dashboard/
+__pycache__/
+*.pyc
+.venv/
+dist/
+.claude/settings.local.json

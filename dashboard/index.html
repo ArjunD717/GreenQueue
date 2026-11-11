@@ -1630,10 +1630,9 @@
     (() => {
       "use strict";
 
-      const API_PLACEHOLDER = "__API_BASE_URL__";
       const rawApi = String(window.GREENQUEUE_API || "").trim();
       const API_BASE = rawApi.replace(/\/+$/, "");
-      const LIVE_API = Boolean(API_BASE) && !API_BASE.includes(API_PLACEHOLDER);
+      const LIVE_API = /^https?:\/\//i.test(API_BASE);
       const POLL_MS = 20000;
       const FORECAST_MS = 600000;
       const DAY_MS = 86400000;

@@ -1,0 +1,3036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#06110e">
+  <meta name="description" content="GreenQueue schedules batch compute in the cleanest hours on the UK grid, then reports the carbon avoided.">
+  <title>GreenQueue | Carbon-aware batch scheduling</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2306110e'/%3E%3Cpath d='M7 9h12M7 16h17M7 23h8' stroke='%23f2f0e6' stroke-width='2.4' stroke-linecap='round'/%3E%3Crect x='23' y='6' width='4' height='13' rx='2' fill='%239ad9f8'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..700&family=Newsreader:opsz,wght@6..72,300..600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #06110e;
+      --bg-deep: #040c09;
+      --surface: #0b1b16;
+      --surface-2: #10251d;
+      --text: #f2f0e6;
+      --muted: #9fb0a6;
+      --muted-2: #82968b;
+      --line: rgba(230, 240, 232, 0.14);
+      --line-soft: rgba(230, 240, 232, 0.075);
+      --accent: #9ad9f8;
+      --accent-strong: #6fc4ec;
+      --accent-wash: rgba(154, 217, 248, 0.1);
+      --low: #5fddaa;
+      --moderate: #ebcb67;
+      --high: #f08a5b;
+      --very-high: #e85d55;
+      --bad: #f07a61;
+      --font-display: "Newsreader", Georgia, "Times New Roman", serif;
+      --font-ui: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+      --radius: 9px;
+      --shell: min(1240px, calc(100% - 64px));
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    [hidden] { display: none !important; }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 96px;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 15px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-image:
+        radial-gradient(circle at 82% -12%, rgba(154, 217, 248, 0.11), transparent 42%),
+        radial-gradient(circle at 9% 38%, rgba(95, 221, 170, 0.035), transparent 33%);
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.24;
+      background-image: radial-gradient(rgba(230, 240, 232, 0.3) 0.7px, transparent 0.7px);
+      background-size: 30px 30px;
+      -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 62%);
+      mask-image: linear-gradient(to bottom, #000 0%, transparent 62%);
+    }
+
+    ::selection { background: var(--accent); color: var(--bg); }
+
+    a { color: inherit; }
+
+    button, input { font: inherit; }
+
+    button { color: inherit; }
+
+    svg { display: block; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    .skip-link {
+      position: absolute;
+      top: -100px;
+      left: 24px;
+      z-index: 100;
+      padding: 10px 16px;
+      background: var(--accent);
+      color: var(--bg);
+      border-radius: 0 0 6px 6px;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .skip-link:focus { top: 0; }
+
+    .site-header, main, .site-footer { position: relative; z-index: 1; }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line-soft);
+      background: rgba(6, 17, 14, 0.82);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    .shell {
+      width: var(--shell);
+      margin-inline: auto;
+    }
+
+    .header-inner {
+      min-height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 28px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      text-decoration: none;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      white-space: nowrap;
+    }
+
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      color: var(--text);
+      flex: none;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 30px;
+      margin-left: auto;
+      font-size: 13px;
+    }
+
+    .nav a {
+      color: var(--muted);
+      text-decoration: none;
+      padding-block: 6px;
+      border-bottom: 1px solid transparent;
+      transition: color 180ms ease, border-color 180ms ease;
+    }
+
+    .nav a:hover {
+      color: var(--text);
+      border-bottom-color: var(--line);
+    }
+
+    .system-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-width: 103px;
+      min-height: 32px;
+      padding: 6px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      flex: none;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(154, 217, 248, 0.1);
+      animation: statusPulse 3.4s ease-in-out infinite;
+    }
+
+    .system-pill[data-mode="preview"] { color: var(--moderate); border-color: rgba(235, 203, 103, 0.24); }
+    .system-pill[data-mode="preview"] .live-dot {
+      background: var(--moderate);
+      box-shadow: 0 0 0 3px rgba(235, 203, 103, 0.09);
+      animation: none;
+    }
+    .system-pill[data-mode="error"] { color: var(--bad); border-color: rgba(240, 122, 97, 0.26); }
+    .system-pill[data-mode="error"] .live-dot {
+      background: var(--bad);
+      box-shadow: 0 0 0 3px rgba(240, 122, 97, 0.09);
+      animation: none;
+    }
+    .system-pill[data-mode="loading"] { color: var(--muted-2); }
+    .system-pill[data-mode="loading"] .live-dot { background: var(--muted-2); animation: none; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+      align-items: center;
+      gap: clamp(38px, 6vw, 86px);
+      padding: clamp(58px, 8vw, 96px) 0 38px;
+    }
+
+    .hero-copy { animation: riseIn 700ms cubic-bezier(0.2, 0.75, 0.2, 1) both; }
+
+    .hero-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 25px;
+      padding: 6px 11px 6px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.01em;
+    }
+
+    .hero-kicker .live-dot { width: 5px; height: 5px; }
+
+    .hero h1 {
+      max-width: 12ch;
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(3.35rem, 6.2vw, 5.55rem);
+      font-weight: 400;
+      line-height: 0.94;
+      letter-spacing: -0.035em;
+      text-wrap: balance;
+    }
+
+    .hero-lede {
+      max-width: 48ch;
+      margin: 27px 0 0;
+      color: var(--muted);
+      font-size: clamp(15px, 1.4vw, 17px);
+      line-height: 1.65;
+      text-wrap: pretty;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-top: 33px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      min-height: 46px;
+      padding: 12px 19px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 550;
+      line-height: 1;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background-color 180ms ease, border-color 180ms ease,
+        color 180ms ease, transform 180ms ease;
+    }
+
+    .btn svg {
+      width: 15px;
+      height: 15px;
+      transition: transform 200ms ease;
+    }
+
+    .btn:hover svg { transform: translateX(3px); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #04151c;
+    }
+
+    .btn-primary:hover { background: #b9e6fb; }
+
+    .btn-primary:active { transform: translateY(1px); }
+
+    .btn-ghost {
+      border-color: var(--line);
+      background: transparent;
+      color: var(--text);
+    }
+
+    .btn-ghost:hover { border-color: rgba(230, 240, 232, 0.3); background: rgba(230, 240, 232, 0.03); }
+
+    .btn[disabled] { opacity: 0.62; cursor: progress; }
+
+    .btn[disabled] svg { display: none; }
+
+    .text-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-size: 13px;
+      text-decoration: none;
+      padding-block: 6px;
+      border-bottom: 1px solid var(--line);
+      transition: color 180ms ease, border-color 180ms ease;
+    }
+
+    .text-link:hover { color: var(--accent); border-color: var(--accent); }
+    .text-link svg { width: 14px; height: 14px; }
+
+    .hero-note {
+      margin: 20px 0 0;
+      color: var(--muted-2);
+      font-size: 11px;
+    }
+
+    .window-card {
+      position: relative;
+      align-self: center;
+      overflow: hidden;
+      padding: 25px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(145deg, rgba(18, 42, 33, 0.92), rgba(6, 18, 14, 0.96));
+      animation: riseIn 700ms 100ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+    }
+
+    .window-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 58%;
+      height: 1px;
+      background: linear-gradient(90deg, var(--accent), transparent);
+    }
+
+    .window-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .window-label {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .source-tag {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 63px;
+      padding: 4px 8px;
+      border: 1px solid rgba(154, 217, 248, 0.22);
+      border-radius: 999px;
+      color: var(--accent);
+      font-size: 10px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+
+    .source-tag[data-source="mock"] {
+      color: var(--moderate);
+      border-color: rgba(235, 203, 103, 0.24);
+    }
+
+    .window-time {
+      margin: 18px 0 0;
+      font-size: clamp(2.15rem, 3.7vw, 2.8rem);
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: -0.045em;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .window-date {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .window-metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      margin-top: 22px;
+      border-top: 1px solid var(--line-soft);
+    }
+
+    .window-metric { padding-top: 14px; }
+    .window-metric + .window-metric {
+      padding-left: 18px;
+      border-left: 1px solid var(--line-soft);
+    }
+
+    .window-metric strong {
+      display: block;
+      font-size: 23px;
+      font-weight: 500;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .window-metric span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted-2);
+      font-size: 10px;
+    }
+
+    .strip-wrap { margin-top: 21px; }
+
+    .strip-topline {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      color: var(--muted-2);
+      font-size: 10px;
+    }
+
+    .intensity-strip {
+      position: relative;
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 57px;
+      padding: 0 1px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .strip-bar {
+      flex: 1 1 0;
+      min-width: 1px;
+      border-radius: 1px 1px 0 0;
+      transform-origin: bottom;
+      animation: barIn 500ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+      animation-delay: calc(220ms + var(--i) * 7ms);
+    }
+
+    .strip-highlight {
+      position: absolute;
+      bottom: -2px;
+      height: 4px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 10px rgba(154, 217, 248, 0.25);
+      pointer-events: none;
+    }
+
+    .strip-highlight::before,
+    .strip-highlight::after {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      width: 1px;
+      height: 9px;
+      background: var(--accent);
+    }
+
+    .strip-highlight::before { left: 0; }
+    .strip-highlight::after { right: 0; }
+
+    .strip-foot {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 7px;
+      color: var(--muted-2);
+      font-size: 10px;
+    }
+
+    .window-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 17px;
+      padding-top: 13px;
+      border-top: 1px solid var(--line-soft);
+      color: var(--muted-2);
+      font-size: 10px;
+    }
+
+    .window-foot span:first-child {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .window-foot .live-dot { width: 5px; height: 5px; }
+
+    .stats-band {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      padding: 23px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .stat { padding-inline: 26px; }
+    .stat:first-child { padding-left: 0; }
+    .stat + .stat { border-left: 1px solid var(--line-soft); }
+
+    .stat-label {
+      margin: 0 0 7px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .stat-value {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin: 0;
+      font-size: clamp(1.65rem, 3vw, 2.15rem);
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-unit {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+
+    .stat-sub {
+      margin: 7px 0 0;
+      color: var(--muted-2);
+      font-size: 10px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(10, 25, 20, 0.7);
+    }
+
+    .forecast-panel {
+      margin-top: 24px;
+      padding: 27px 27px 16px;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 28px;
+      margin-bottom: 24px;
+    }
+
+    h2 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 3.2vw, 2.6rem);
+      font-weight: 400;
+      line-height: 1.02;
+      letter-spacing: -0.028em;
+      text-wrap: balance;
+    }
+
+    .section-head p {
+      max-width: 53ch;
+      margin: 9px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+      text-wrap: pretty;
+    }
+
+    .scale {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px 13px;
+      max-width: 280px;
+      padding-top: 5px;
+      color: var(--muted-2);
+      font-size: 10px;
+    }
+
+    .scale span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+
+    .swatch {
+      width: 12px;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--low);
+    }
+
+    .chart-frame {
+      position: relative;
+      height: clamp(280px, 34vw, 365px);
+    }
+
+    .chart-frame canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    .chart-fallback {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 24px;
+      border: 1px dashed var(--line);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .chart-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line-soft);
+      color: var(--muted-2);
+      font-size: 10px;
+    }
+
+    .chart-foot p { margin: 0; }
+
+    .marker-key {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .marker-key i {
+      width: 7px;
+      height: 7px;
+      border: 1px solid var(--muted);
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .work-grid {
+      display: grid;
+      grid-template-columns: minmax(330px, 0.88fr) minmax(0, 1.2fr);
+      align-items: start;
+      gap: 24px;
+      margin-top: 24px;
+    }
+
+    .form-panel, .jobs-panel { padding: 26px; }
+
+    @media (min-width: 1041px) {
+      .form-panel {
+        position: sticky;
+        top: 96px;
+      }
+    }
+
+    .panel-head {
+      margin-bottom: 22px;
+      padding-bottom: 19px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .panel-head h2 { font-size: clamp(1.8rem, 2.7vw, 2.25rem); }
+
+    .panel-head p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .jobs-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .jobs-head h2 { font-size: clamp(1.8rem, 2.7vw, 2.25rem); }
+
+    .jobs-tools {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding-top: 4px;
+      color: var(--muted-2);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .icon-btn {
+      display: inline-grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: color 180ms ease, border-color 180ms ease;
+    }
+
+    .icon-btn:hover { color: var(--text); border-color: rgba(230, 240, 232, 0.3); }
+    .icon-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+    .icon-btn svg { width: 13px; height: 13px; }
+    .icon-btn.is-spinning svg { animation: spin 800ms linear infinite; }
+
+    .field { margin-bottom: 0; }
+
+    .field + .field { margin-top: 17px; }
+
+    .field label {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .field input {
+      width: 100%;
+      min-height: 43px;
+      padding: 11px 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: rgba(4, 13, 10, 0.58);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.3;
+      transition: border-color 160ms ease, box-shadow 160ms ease,
+        background-color 160ms ease;
+    }
+
+    .field input::placeholder { color: #61746a; }
+    .field input:hover { border-color: rgba(230, 240, 232, 0.24); }
+
+    .field input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(154, 217, 248, 0.11);
+      background: rgba(4, 13, 10, 0.82);
+    }
+
+    .field input[aria-invalid="true"] {
+      border-color: var(--bad);
+      box-shadow: 0 0 0 3px rgba(240, 122, 97, 0.08);
+    }
+
+    .input-unit { position: relative; }
+    .input-unit input { padding-right: 57px; }
+
+    .input-unit > span {
+      position: absolute;
+      top: 50%;
+      right: 12px;
+      transform: translateY(-50%);
+      color: var(--muted-2);
+      font-size: 10px;
+      pointer-events: none;
+    }
+
+    .field-error {
+      min-height: 16px;
+      margin: 4px 0 0;
+      color: var(--bad);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    .field-hint {
+      margin: 5px 0 0;
+      color: var(--muted-2);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    .form-submit {
+      width: 100%;
+      justify-content: space-between;
+      margin-top: 20px;
+      padding-inline: 18px;
+    }
+
+    .btn-label { display: inline-flex; align-items: center; gap: 9px; }
+
+    .btn.is-loading .btn-label::before {
+      content: "";
+      width: 12px;
+      height: 12px;
+      border: 1.5px solid rgba(4, 21, 28, 0.3);
+      border-top-color: #04151c;
+      border-radius: 50%;
+      animation: spin 700ms linear infinite;
+    }
+
+    .form-note {
+      min-height: 31px;
+      margin: 13px 0 0;
+      color: var(--muted-2);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+
+    .form-alert {
+      min-height: 18px;
+      margin: 4px 0 0;
+      color: var(--bad);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .form-alert:empty, .field-error:empty { visibility: hidden; }
+
+    .success-panel { padding-top: 4px; }
+
+    .success-icon {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      margin-bottom: 17px;
+      border: 1px solid rgba(95, 221, 170, 0.35);
+      border-radius: 50%;
+      color: var(--low);
+      background: rgba(95, 221, 170, 0.06);
+    }
+
+    .success-icon svg { width: 21px; height: 21px; }
+
+    .success-icon path {
+      stroke-dasharray: 24;
+      stroke-dashoffset: 24;
+      animation: drawCheck 500ms 160ms cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
+    }
+
+    .success-panel h3 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(1.8rem, 2.8vw, 2.25rem);
+      font-weight: 400;
+      line-height: 1.06;
+      letter-spacing: -0.025em;
+      outline: none;
+    }
+
+    .success-copy {
+      margin: 11px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+      text-wrap: pretty;
+    }
+
+    .success-window {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 19px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line-soft);
+      font-size: 24px;
+      font-weight: 500;
+      letter-spacing: -0.035em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .success-window span {
+      color: var(--muted-2);
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+
+    .success-metric {
+      margin: 8px 0 0;
+      color: var(--low);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .success-preview {
+      margin: 13px 0 0;
+      color: var(--moderate);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+
+    .success-actions { margin-top: 21px; }
+
+    .jobs-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .jobs-table th {
+      padding: 0 8px 11px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted-2);
+      font-size: 10px;
+      font-weight: 500;
+      text-align: left;
+      letter-spacing: 0.02em;
+    }
+
+    .jobs-table th:first-child, .jobs-table td:first-child { padding-left: 0; width: 38%; }
+    .jobs-table th:nth-child(2), .jobs-table td:nth-child(2) { width: 27%; }
+    .jobs-table th:nth-child(3), .jobs-table td:nth-child(3) { width: 17%; }
+    .jobs-table th:last-child, .jobs-table td:last-child { padding-right: 0; width: 18%; }
+
+    .jobs-table td {
+      padding: 14px 8px;
+      border-bottom: 1px solid var(--line-soft);
+      vertical-align: middle;
+    }
+
+    .jobs-table tr:last-child td { border-bottom: 0; }
+
+    .jobs-table tbody tr { transition: background-color 220ms ease; }
+    .jobs-table tbody tr:hover { background: rgba(230, 240, 232, 0.018); }
+
+    .jobs-table tbody tr.is-new {
+      animation: rowFlash 2.4s ease-out both;
+    }
+
+    .job-name {
+      overflow: hidden;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .job-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 9px;
+      margin-top: 4px;
+      color: var(--muted-2);
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .window-cell strong {
+      display: block;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .window-cell span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted-2);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.25;
+      white-space: nowrap;
+    }
+
+    .status-badge::before {
+      content: "";
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: currentColor;
+      flex: none;
+    }
+
+    .status-badge[data-status="queued"] {
+      color: var(--accent);
+      border-color: rgba(154, 217, 248, 0.25);
+      background: rgba(154, 217, 248, 0.04);
+    }
+
+    .status-badge[data-status="running"] {
+      color: var(--moderate);
+      border-color: rgba(235, 203, 103, 0.25);
+      background: rgba(235, 203, 103, 0.04);
+    }
+
+    .status-badge[data-status="running"]::before {
+      animation: statusPulse 1.8s ease-in-out infinite;
+    }
+
+    .status-badge[data-status="completed"] {
+      color: var(--low);
+      border-color: rgba(95, 221, 170, 0.22);
+      background: rgba(95, 221, 170, 0.035);
+    }
+
+    .savings {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .savings strong {
+      display: block;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .savings span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted-2);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .jobs-empty {
+      padding: 48px 20px;
+      border-top: 1px solid var(--line-soft);
+      text-align: center;
+    }
+
+    .jobs-empty p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .jobs-empty .text-link { margin-top: 15px; font-size: 12px; }
+
+    .jobs-message {
+      min-height: 18px;
+      margin: 12px 0 0;
+      color: var(--muted-2);
+      font-size: 10px;
+    }
+
+    .how {
+      margin-top: clamp(54px, 7vw, 82px);
+      padding-top: 30px;
+      border-top: 1px solid var(--line);
+    }
+
+    .how-head {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      align-items: end;
+      gap: 34px;
+    }
+
+    .how-head p {
+      max-width: 56ch;
+      margin: 0 0 4px auto;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.65;
+      text-wrap: pretty;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      margin-top: 28px;
+    }
+
+    .step {
+      padding: 18px 30px 0 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .step + .step {
+      padding-left: 30px;
+      border-left: 1px solid var(--line-soft);
+    }
+
+    .step-num {
+      color: var(--accent);
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .step h3 {
+      margin: 12px 0 0;
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 400;
+      letter-spacing: -0.02em;
+    }
+
+    .step p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.6;
+      text-wrap: pretty;
+    }
+
+    .site-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 18px;
+      margin-top: 54px;
+      padding: 25px 0 38px;
+      border-top: 1px solid var(--line-soft);
+      color: var(--muted-2);
+      font-size: 10px;
+    }
+
+    .footer-left { display: flex; align-items: center; gap: 10px; }
+    .footer-left .brand { font-size: 14px; gap: 8px; }
+    .footer-left .brand-mark { width: 19px; height: 19px; }
+    .footer-links { display: flex; align-items: center; gap: 18px; }
+    .footer-links a { color: var(--muted-2); text-decoration: none; }
+    .footer-links a:hover { color: var(--text); }
+
+    .data-tag {
+      display: inline-block;
+      margin-left: 4px;
+      color: var(--muted-2);
+    }
+
+    @keyframes riseIn {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes barIn {
+      from { opacity: 0.2; transform: scaleY(0.08); }
+      to { opacity: 1; transform: scaleY(1); }
+    }
+
+    @keyframes statusPulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 3px rgba(154, 217, 248, 0.08); }
+      50% { opacity: 0.65; box-shadow: 0 0 0 5px rgba(154, 217, 248, 0.02); }
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @keyframes drawCheck { to { stroke-dashoffset: 0; } }
+
+    @keyframes rowFlash {
+      0% { background: rgba(154, 217, 248, 0.12); }
+      100% { background: transparent; }
+    }
+
+    @media (max-width: 1040px) {
+      :root { --shell: min(1240px, calc(100% - 48px)); }
+      .hero { grid-template-columns: minmax(0, 1fr) minmax(330px, 0.85fr); gap: 38px; }
+      .nav { gap: 22px; }
+      .work-grid { grid-template-columns: 1fr; }
+      .form-panel, .jobs-panel { padding: 25px; }
+      .form-panel .panel-head { margin-bottom: 19px; }
+      .jobs-table th:first-child, .jobs-table td:first-child { width: 37%; }
+      .jobs-table th:nth-child(2), .jobs-table td:nth-child(2) { width: 25%; }
+      .jobs-table th:nth-child(3), .jobs-table td:nth-child(3) { width: 18%; }
+      .jobs-table th:last-child, .jobs-table td:last-child { width: 20%; }
+    }
+
+    @media (max-width: 840px) {
+      .nav { display: none; }
+      .hero {
+        grid-template-columns: 1fr;
+        align-items: start;
+        gap: 34px;
+        padding-top: 54px;
+      }
+      .hero h1 { max-width: 13ch; }
+      .window-card { width: 100%; max-width: 560px; }
+      .section-head { display: block; }
+      .scale { justify-content: flex-start; max-width: none; margin-top: 16px; }
+      .how-head { grid-template-columns: 1fr; gap: 14px; }
+      .how-head p { margin-left: 0; }
+    }
+
+    @media (max-width: 640px) {
+      :root { --shell: calc(100% - 32px); }
+      .header-inner { min-height: 66px; gap: 12px; }
+      .brand { font-size: 16px; }
+      .brand-mark { width: 24px; height: 24px; }
+      .system-pill { min-height: 28px; padding: 5px 9px; font-size: 10px; }
+      .hero { padding-top: 43px; padding-bottom: 27px; }
+      .hero h1 { font-size: clamp(2.8rem, 12vw, 4rem); }
+      .hero-kicker { margin-bottom: 21px; }
+      .hero-lede { margin-top: 21px; font-size: 14px; }
+      .hero-actions { gap: 14px; margin-top: 26px; }
+      .window-card { padding: 21px; }
+      .window-time { font-size: clamp(1.9rem, 9vw, 2.35rem); }
+      .window-metric strong { font-size: 21px; }
+      .stats-band { padding: 20px 0; }
+      .stat { padding-inline: 13px; }
+      .stat-label { font-size: 10px; line-height: 1.35; min-height: 27px; }
+      .stat-value { font-size: clamp(1.35rem, 5.8vw, 1.8rem); gap: 3px; }
+      .stat-unit { font-size: 10px; }
+      .stat-sub { font-size: 10px; line-height: 1.35; }
+      .forecast-panel { padding: 21px 17px 14px; }
+      .chart-frame { height: 275px; }
+      .chart-foot { display: block; line-height: 1.7; }
+      .marker-key { margin-top: 5px; }
+      .form-panel, .jobs-panel { padding: 20px; }
+      .panel-head { margin-bottom: 18px; padding-bottom: 16px; }
+      .jobs-head { gap: 12px; flex-wrap: wrap; }
+      .jobs-tools { font-size: 8px; }
+      .jobs-table thead { display: none; }
+      .jobs-table, .jobs-table tbody, .jobs-table tr, .jobs-table td {
+        display: block;
+        width: 100%;
+      }
+      .jobs-table tr {
+        padding: 15px 0;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .jobs-table tr:last-child { border-bottom: 0; }
+      .jobs-table td {
+        width: 100% !important;
+        padding: 2px 0 !important;
+        border: 0;
+      }
+      .jobs-table td::before {
+        content: attr(data-label);
+        flex: none;
+        color: var(--muted-2);
+        font-size: 10px;
+      }
+      .jobs-table .cell-job { display: block; margin-bottom: 7px; }
+      .jobs-table .cell-job::before { display: none; }
+      .jobs-table .cell-window,
+      .jobs-table .cell-status,
+      .jobs-table .cell-savings {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .window-cell strong, .window-cell span { display: inline; }
+      .window-cell span { margin-left: 7px; }
+      .savings { text-align: right; }
+      .savings strong, .savings span { display: inline; margin-left: 7px; }
+      .savings span { margin-top: 0; }
+      .job-name { font-size: 13px; }
+      .job-meta { font-size: 10px; }
+      .how { margin-top: 48px; }
+      .steps { grid-template-columns: 1fr; }
+      .step { padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--line-soft); }
+      .step + .step { padding-left: 0; border-left: 0; }
+      .step:first-child { border-top-color: var(--line); }
+      .footer-left { width: 100%; }
+      .footer-links { gap: 14px; }
+    }
+
+    @media (max-width: 380px) {
+      .system-pill { font-size: 10px; padding-inline: 8px; }
+      .brand { font-size: 15px; }
+      .hero h1 { font-size: 2.55rem; }
+      .stat { padding-inline: 9px; }
+      .stat-label { min-height: 36px; }
+      .window-metrics { grid-template-columns: 1fr; }
+      .window-metric + .window-metric {
+        margin-top: 13px;
+        padding-left: 0;
+        border-left: 0;
+        border-top: 1px solid var(--line-soft);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-delay: 0ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="brand" href="#top" aria-label="GreenQueue home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M5 8h14M5 14h22M5 20h10M5 26h18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".86"/>
+          <rect x="23" y="4" width="4" height="14" rx="2" fill="var(--accent)"/>
+        </svg>
+        <span>GreenQueue</span>
+      </a>
+
+      <nav class="nav" aria-label="Page sections">
+        <a href="#forecast">Forecast</a>
+        <a href="#schedule">Schedule</a>
+        <a href="#jobs">Jobs</a>
+      </nav>
+
+      <div class="system-pill" id="system-pill" data-mode="loading" title="Connecting to the scheduler">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="system-label">Connecting</span>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <div id="top"></div>
+
+    <section class="shell hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="hero-kicker">
+          <span class="live-dot" aria-hidden="true"></span>
+          Carbon-aware scheduling for the UK grid
+        </p>
+        <h1 id="hero-title">Batch jobs belong in the grid's quiet hours.</h1>
+        <p class="hero-lede">
+          GreenQueue reads 48 hours of grid carbon intensity and places flexible
+          compute in the cleanest window that still meets your deadline. You keep
+          the deadline; the grid keeps the difference.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#schedule">
+            <span class="btn-label">Schedule a job</span>
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M2.5 8h10M9 4.5 12.5 8 9 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+          <a class="text-link" href="#forecast">
+            Explore the forecast
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M4 12 12 4M5.5 4H12v6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+        </div>
+        <p class="hero-note">No API key. 100W assumed per job-hour. Forecast covers the UK grid.</p>
+      </div>
+
+      <aside class="window-card" aria-labelledby="window-label">
+        <div class="window-head">
+          <p class="window-label" id="window-label">Cleanest 4-hour window</p>
+          <span class="source-tag" id="window-source" data-source="mock">Connecting</span>
+        </div>
+        <p class="window-time" id="window-time">—</p>
+        <p class="window-date" id="window-date">Reading the next 24 hours</p>
+
+        <div class="window-metrics">
+          <div class="window-metric">
+            <strong id="window-intensity">—</strong>
+            <span>gCO₂ per kWh</span>
+          </div>
+          <div class="window-metric">
+            <strong id="window-reduction">—</strong>
+            <span>lower than now</span>
+          </div>
+        </div>
+
+        <div class="strip-wrap">
+          <div class="strip-topline" aria-hidden="true">
+            <span>Now</span>
+            <span>Next 24 hours</span>
+          </div>
+          <div class="intensity-strip" id="intensity-strip" role="img" aria-label="Carbon intensity over the next 24 hours"></div>
+          <div class="strip-foot" aria-hidden="true">
+            <span id="strip-low">Cleanest</span>
+            <span id="strip-high">Dirtiest</span>
+          </div>
+        </div>
+
+        <div class="window-foot">
+          <span><span class="live-dot" aria-hidden="true"></span><span id="window-status">Forecast loading</span></span>
+          <span id="window-updated">—</span>
+        </div>
+      </aside>
+    </section>
+
+    <section class="shell stats-band" aria-label="GreenQueue impact">
+      <div class="stat">
+        <p class="stat-label">Total CO₂ saved</p>
+        <p class="stat-value"><span id="stat-co2">0.00</span><span class="stat-unit">kg</span></p>
+        <p class="stat-sub" id="stat-co2-sub">Projected across all jobs</p>
+      </div>
+      <div class="stat">
+        <p class="stat-label">Jobs scheduled</p>
+        <p class="stat-value"><span id="stat-jobs">0</span></p>
+        <p class="stat-sub" id="stat-jobs-sub">Waiting for the queue</p>
+      </div>
+      <div class="stat">
+        <p class="stat-label">Avg. reduction</p>
+        <p class="stat-value"><span id="stat-reduction">0</span><span class="stat-unit">%</span></p>
+        <p class="stat-sub">Versus running immediately</p>
+      </div>
+    </section>
+
+    <section class="shell forecast-panel panel" id="forecast" aria-labelledby="forecast-title">
+      <header class="section-head">
+        <div>
+          <h2 id="forecast-title">Carbon intensity, next 48 hours</h2>
+          <p>Each point is a half-hour. The line carries the intensity colour; dots show where jobs have been placed inside this window.</p>
+        </div>
+        <div class="scale" role="group" aria-label="Intensity scale in grams of CO2 per kilowatt hour">
+          <span><i class="swatch" style="background:var(--low)"></i>Low</span>
+          <span><i class="swatch" style="background:var(--moderate)"></i>Moderate</span>
+          <span><i class="swatch" style="background:var(--high)"></i>High</span>
+          <span><i class="swatch" style="background:var(--very-high)"></i>Very high</span>
+        </div>
+      </header>
+
+      <div class="chart-frame">
+        <canvas id="forecast-chart" role="img" aria-label="48-hour carbon intensity forecast"></canvas>
+        <div class="chart-fallback" id="chart-fallback" hidden>
+          The chart library did not load. The live forecast and scheduled windows are still shown below in the job table.
+        </div>
+      </div>
+
+      <footer class="chart-foot">
+        <p id="chart-note">Loading forecast.</p>
+        <span class="marker-key"><i aria-hidden="true"></i>Scheduled job</span>
+      </footer>
+    </section>
+
+    <div class="shell work-grid">
+      <section class="form-panel panel" id="schedule" aria-labelledby="schedule-title">
+        <div class="panel-head">
+          <h2 id="schedule-title">Schedule a batch job</h2>
+          <p>Give us the deadline. We will find the lowest-carbon window that fits.</p>
+        </div>
+
+        <form id="job-form" novalidate>
+          <div class="field">
+            <label for="job-name">Job name</label>
+            <input id="job-name" name="name" type="text" maxlength="80" autocomplete="off"
+              placeholder="Quarterly revenue rebuild" required aria-describedby="name-error">
+            <p class="field-error" id="name-error"></p>
+          </div>
+
+          <div class="field">
+            <label for="job-duration">Estimated duration</label>
+            <div class="input-unit">
+              <input id="job-duration" name="duration" type="number" inputmode="decimal"
+                min="0.5" max="24" step="0.5" value="4" required aria-describedby="duration-error">
+              <span>hours</span>
+            </div>
+            <p class="field-error" id="duration-error"></p>
+          </div>
+
+          <div class="field">
+            <label for="job-deadline">Finish before</label>
+            <input id="job-deadline" name="deadline" type="datetime-local" required
+              aria-describedby="deadline-hint deadline-error">
+            <p class="field-hint" id="deadline-hint">In your local time.</p>
+            <p class="field-error" id="deadline-error"></p>
+          </div>
+
+          <button class="btn btn-primary form-submit" type="submit" id="submit-button">
+            <span class="btn-label">Schedule job</span>
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M2.5 8h10M9 4.5 12.5 8 9 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <p class="form-alert" id="form-error" role="alert"></p>
+          <p class="form-note" id="form-note">CO₂ assumes 100W per job-hour. Execution is simulated for this demo.</p>
+        </form>
+
+        <div class="success-panel" id="success-panel" hidden aria-live="polite">
+          <div class="success-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="m5 12.5 4.2 4.2L19 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h3 id="success-title" tabindex="-1">Scheduled into the clean window.</h3>
+          <p class="success-copy" id="success-copy"></p>
+          <div class="success-window-wrap">
+            <p class="success-window"><span id="success-window">—</span><span id="success-date"></span></p>
+            <p class="success-metric" id="success-metric"></p>
+            <p class="success-preview" id="success-preview" hidden></p>
+          </div>
+          <div class="success-actions">
+            <button class="btn btn-ghost" type="button" id="schedule-another">Schedule another job</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="jobs-panel panel" id="jobs" aria-labelledby="jobs-title">
+        <div class="panel-head jobs-head">
+          <div>
+            <h2 id="jobs-title">Scheduled jobs</h2>
+            <p id="jobs-count" aria-live="polite">Loading jobs</p>
+          </div>
+          <div class="jobs-tools">
+            <span>Auto-refresh 20s</span>
+            <button class="icon-btn" type="button" id="refresh-button" aria-label="Refresh jobs">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M13 8a5 5 0 1 1-1.46-3.54M13 2.5V5H10.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <table class="jobs-table" id="jobs-table">
+          <caption class="sr-only">Jobs scheduled through GreenQueue, with their programmed window, status, and projected carbon saving.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Job</th>
+              <th scope="col">Window</th>
+              <th scope="col">Status</th>
+              <th scope="col">CO₂ avoided</th>
+            </tr>
+          </thead>
+          <tbody id="jobs-body"></tbody>
+        </table>
+
+        <div class="jobs-empty" id="jobs-empty" hidden>
+          <p>No jobs yet. Schedule the first batch and it will appear here.</p>
+          <a class="text-link" href="#schedule">Go to the scheduler
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M2.5 8h10M9 4.5 12.5 8 9 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+        </div>
+        <p class="jobs-message" id="jobs-message"></p>
+      </section>
+    </div>
+
+    <section class="shell how" aria-labelledby="how-title">
+      <div class="how-head">
+        <h2 id="how-title">Three moves, one quiet window.</h2>
+        <p>
+          GreenQueue is an event-driven AWS build. Submission is synchronous;
+          execution is deferred to the cleanest half-hour the forecast allows.
+          Every choice is visible in the queue.
+        </p>
+      </div>
+      <div class="steps">
+        <article class="step">
+          <span class="step-num">01</span>
+          <h3>Submit</h3>
+          <p>A Lambda validates the job and asks the shared planner for the best feasible window.</p>
+        </article>
+        <article class="step">
+          <span class="step-num">02</span>
+          <h3>Forecast</h3>
+          <p>The planner scans 96 half-hour slots, weighing every window that ends before the deadline.</p>
+        </article>
+        <article class="step">
+          <span class="step-num">03</span>
+          <h3>Dispatch</h3>
+          <p>EventBridge ticks every minute. Due jobs move from queued to running, then complete.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer shell">
+    <div class="footer-left">
+      <a class="brand" href="#top" aria-label="Back to the top">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M5 8h14M5 14h22M5 20h10M5 26h18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".86"/>
+          <rect x="23" y="4" width="4" height="14" rx="2" fill="var(--accent)"/>
+        </svg>
+        <span>GreenQueue</span>
+      </a>
+      <span>Batch work, placed well.</span>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/ArjunD717/GreenQueue" target="_blank" rel="noreferrer">Source</a>
+      <a href="https://carbon-intensity.github.io/" target="_blank" rel="noreferrer">UK grid data</a>
+      <span>Crafted on AWS serverless</span>
+    </div>
+  </footer>
+
+  <script>
+    window.GREENQUEUE_API = "__API_BASE_URL__";
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script>
+    (() => {
+      "use strict";
+
+      const rawApi = String(window.GREENQUEUE_API || "").trim();
+      const API_BASE = rawApi.replace(/\/+$/, "");
+      const LIVE_API = /^https?:\/\//i.test(API_BASE);
+      const POLL_MS = 20000;
+      const FORECAST_MS = 600000;
+      const DAY_MS = 86400000;
+      const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      const BANDS = [
+        { max: 30, color: "#74e5c5", label: "Very low" },
+        { max: 100, color: "#5fdaa8", label: "Low" },
+        { max: 200, color: "#ebcb67", label: "Moderate" },
+        { max: 300, color: "#f08a5b", label: "High" },
+        { max: Infinity, color: "#e85d55", label: "Very high" }
+      ];
+
+      const STATUS_COLORS = {
+        QUEUED: "#9ad9f8",
+        RUNNING: "#ebcb67",
+        COMPLETED: "#5fdaa8"
+      };
+
+      const STATUS_LABELS = {
+        QUEUED: "Queued",
+        RUNNING: "Running",
+        COMPLETED: "Completed"
+      };
+
+      const state = {
+        demoMode: false,
+        previewReason: "",
+        forecast: null,
+        jobs: [],
+        chart: null,
+        chartFallback: false,
+        loading: false,
+        submitting: false,
+        refreshing: false,
+        newJobId: null,
+        newJobTimer: null,
+        pollTimer: null,
+        forecastTimer: null
+      };
+
+      const els = {
+        systemPill: document.getElementById("system-pill"),
+        systemLabel: document.getElementById("system-label"),
+        windowSource: document.getElementById("window-source"),
+        windowTime: document.getElementById("window-time"),
+        windowDate: document.getElementById("window-date"),
+        windowIntensity: document.getElementById("window-intensity"),
+        windowReduction: document.getElementById("window-reduction"),
+        windowStatus: document.getElementById("window-status"),
+        windowUpdated: document.getElementById("window-updated"),
+        strip: document.getElementById("intensity-strip"),
+        stripLow: document.getElementById("strip-low"),
+        stripHigh: document.getElementById("strip-high"),
+        statCo2: document.getElementById("stat-co2"),
+        statJobs: document.getElementById("stat-jobs"),
+        statReduction: document.getElementById("stat-reduction"),
+        statCo2Sub: document.getElementById("stat-co2-sub"),
+        statJobsSub: document.getElementById("stat-jobs-sub"),
+        chart: document.getElementById("forecast-chart"),
+        chartFallback: document.getElementById("chart-fallback"),
+        chartNote: document.getElementById("chart-note"),
+        form: document.getElementById("job-form"),
+        formNote: document.getElementById("form-note"),
+        formError: document.getElementById("form-error"),
+        name: document.getElementById("job-name"),
+        duration: document.getElementById("job-duration"),
+        deadline: document.getElementById("job-deadline"),
+        deadlineHint: document.getElementById("deadline-hint"),
+        submit: document.getElementById("submit-button"),
+        successPanel: document.getElementById("success-panel"),
+        successTitle: document.getElementById("success-title"),
+        successCopy: document.getElementById("success-copy"),
+        successWindow: document.getElementById("success-window"),
+        successDate: document.getElementById("success-date"),
+        successMetric: document.getElementById("success-metric"),
+        successPreview: document.getElementById("success-preview"),
+        scheduleAnother: document.getElementById("schedule-another"),
+        jobsBody: document.getElementById("jobs-body"),
+        jobsTable: document.getElementById("jobs-table"),
+        jobsEmpty: document.getElementById("jobs-empty"),
+        jobsCount: document.getElementById("jobs-count"),
+        jobsMessage: document.getElementById("jobs-message"),
+        refresh: document.getElementById("refresh-button")
+      };
+
+      const timeFormat = new Intl.DateTimeFormat("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      });
+      const dayFormat = new Intl.DateTimeFormat("en-GB", {
+        weekday: "short",
+        day: "numeric",
+        month: "short"
+      });
+      const fullFormat = new Intl.DateTimeFormat("en-GB", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      });
+      const kgFormat = new Intl.NumberFormat("en-GB", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+      const intFormat = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 });
+
+      class HttpError extends Error {
+        constructor(message, status, fields) {
+          super(message);
+          this.name = "HttpError";
+          this.status = status;
+          this.fields = fields || null;
+        }
+      }
+
+      function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+      }
+
+      function intensityColor(value) {
+        const numeric = Number(value);
+        const band = BANDS.find((entry) => numeric <= entry.max) || BANDS[BANDS.length - 1];
+        return band.color;
+      }
+
+      function intensityLabel(value) {
+        const numeric = Number(value);
+        const band = BANDS.find((entry) => numeric <= entry.max) || BANDS[BANDS.length - 1];
+        return band.label;
+      }
+
+      function isoSeconds(date) {
+        return new Date(date).toISOString().replace(/\.\d{3}Z$/, "Z");
+      }
+
+      function parseDate(value) {
+        const time = Date.parse(value);
+        return Number.isFinite(time) ? new Date(time) : null;
+      }
+
+      function formatTime(value) {
+        const date = value instanceof Date ? value : parseDate(value);
+        return date ? timeFormat.format(date) : "—";
+      }
+
+      function formatDay(value) {
+        const date = value instanceof Date ? value : parseDate(value);
+        return date ? dayFormat.format(date) : "—";
+      }
+
+      function formatFull(value) {
+        const date = value instanceof Date ? value : parseDate(value);
+        return date ? fullFormat.format(date) : "—";
+      }
+
+      function formatWindow(startValue, endValue) {
+        const start = startValue instanceof Date ? startValue : parseDate(startValue);
+        const end = endValue instanceof Date ? endValue : parseDate(endValue);
+        if (!start || !end) return "—";
+        return `${timeFormat.format(start)}–${timeFormat.format(end)}`;
+      }
+
+      function relativeTime(value) {
+        const date = value instanceof Date ? value : parseDate(value);
+        if (!date) return "—";
+        const diff = Date.now() - date.getTime();
+        if (Math.abs(diff) < 45000) return "just now";
+        if (diff >= 0) {
+          const minutes = Math.round(diff / 60000);
+          if (minutes < 60) return `${minutes}m ago`;
+          const hours = Math.round(minutes / 60);
+          if (hours < 24) return `${hours}h ago`;
+          const days = Math.round(hours / 24);
+          if (days < 7) return `${days}d ago`;
+          return formatDay(date);
+        }
+        const aheadMinutes = Math.round(Math.abs(diff) / 60000);
+        if (aheadMinutes < 60) return `in ${aheadMinutes}m`;
+        const aheadHours = Math.round(aheadMinutes / 60);
+        if (aheadHours < 24) return `in ${aheadHours}h`;
+        return `in ${Math.round(aheadHours / 24)}d`;
+      }
+
+      function localInputValue(date) {
+        const pad = (value) => String(value).padStart(2, "0");
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      }
+
+      function setSystem(mode, label, title) {
+        els.systemPill.dataset.mode = mode;
+        els.systemLabel.textContent = label;
+        if (title) {
+          els.systemPill.title = title;
+        }
+      }
+
+      function updateSystemStatus() {
+        if (state.demoMode) {
+          setSystem("preview", "Preview data", state.previewReason || "The API is not connected.");
+          return;
+        }
+        if (state.forecast && state.forecast.source === "mock") {
+          setSystem(
+            "preview",
+            "Synthetic forecast",
+            state.forecast.fallback_reason || "MOCK_MODE is enabled."
+          );
+          return;
+        }
+        setSystem("live", "Live forecast", "Connected to the GreenQueue API.");
+      }
+
+      function setDefaultDeadline() {
+        const date = new Date();
+        date.setDate(date.getDate() + 1);
+        date.setHours(9, 0, 0, 0);
+        els.deadline.value = localInputValue(date);
+        updateDeadlineHint();
+      }
+
+      function updateDeadlineHint() {
+        const duration = Number(els.duration.value);
+        const validDuration = Number.isFinite(duration) && duration >= 0.5 && duration <= 24;
+        const min = new Date(Date.now() + (validDuration ? duration : 0.5) * 3600000 + 60000);
+        els.deadline.min = localInputValue(min);
+        els.deadlineHint.textContent = validDuration
+          ? `In your local time. Must be at least ${duration} hour${duration === 1 ? "" : "s"} away.`
+          : "In your local time.";
+      }
+
+      async function fetchJSON(path, options = {}, timeout = 9000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeout);
+        try {
+          const response = await fetch(`${API_BASE}${path}`, {
+            ...options,
+            signal: controller.signal,
+            headers: {
+              Accept: "application/json",
+              ...(options.headers || {})
+            }
+          });
+          const text = await response.text();
+          let payload = null;
+          if (text) {
+            try { payload = JSON.parse(text); } catch (_error) { payload = null; }
+          }
+          if (!response.ok) {
+            const detail = payload && payload.error ? payload.error : {};
+            throw new HttpError(
+              detail.message || `The scheduler returned ${response.status}.`,
+              response.status,
+              detail.fields || null
+            );
+          }
+          return payload;
+        } catch (error) {
+          if (error.name === "AbortError") {
+            throw new Error("The request timed out. Try again.");
+          }
+          throw error;
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      function buildMockForecast(now = new Date()) {
+        const start = new Date(now.getTime());
+        start.setSeconds(0, 0);
+        const minute = start.getMinutes();
+        if (minute < 30) {
+          start.setMinutes(30);
+        } else {
+          start.setMinutes(0);
+          start.setHours(start.getHours() + 1);
+        }
+        const points = [];
+        for (let index = 0; index < 96; index += 1) {
+          const from = new Date(start.getTime() + index * 1800000);
+          const to = new Date(from.getTime() + 1800000);
+          const hour = from.getUTCHours() + from.getUTCMinutes() / 60;
+          const dayIndex = Math.floor(from.getTime() / DAY_MS);
+          const evening = 165 * Math.exp(-((hour - 19) ** 2) / (2 * 2.1 ** 2));
+          const overnight = 92 * Math.exp(-((hour - 3.2) ** 2) / (2 * 2.6 ** 2));
+          const solar = 38 * Math.exp(-((hour - 12.5) ** 2) / (2 * 2.2 ** 2));
+          const shoulder = 16 * Math.sin((hour / 24) * Math.PI * 4 + 0.8);
+          const daily = 7 * Math.sin(dayIndex * 0.9);
+          const value = Math.max(40, Math.round(
+            198 + daily + evening - overnight - solar + shoulder + 3 * Math.sin(index * 0.7)
+          ));
+          points.push({
+            from: isoSeconds(from),
+            to: isoSeconds(to),
+            intensity: value,
+            index: intensityLabel(value).toLowerCase()
+          });
+        }
+        return {
+          source: "mock",
+          mock: true,
+          fetched_at: isoSeconds(new Date()),
+          points
+        };
+      }
+
+      function metricsFor(duration, immediateIntensity, scheduledIntensity) {
+        const energy = Math.round(duration * 0.1 * 1000) / 1000;
+        const co2Now = Math.round(immediateIntensity * energy * 10) / 10;
+        const co2Scheduled = Math.round(scheduledIntensity * energy * 10) / 10;
+        const co2Saved = Math.round(Math.max(0, co2Now - co2Scheduled) * 10) / 10;
+        const reduction = co2Now > 0 ? Math.round((co2Saved / co2Now) * 1000) / 10 : 0;
+        return { energy, co2Now, co2Scheduled, co2Saved, reduction };
+      }
+
+      function buildDemoJobs(now = new Date()) {
+        const base = new Date(now.getTime());
+        const completedSpecs = [
+          ["Revenue model refresh", 2, 6, 3, 318, 112],
+          ["Nightly CRM sync", 3, 5, 2, 296, 104],
+          ["Churn cohort backfill", 6, 4, 1, 327, 118],
+          ["Search index rebuild", 4, 3, 3, 288, 96],
+          ["Climate risk tiles", 8, 3, 0, 305, 125],
+          ["Podcast episode transcode", 1, 2, 4, 342, 89],
+          ["Quarterly ledger import", 5, 2, 1, 312, 109],
+          ["Experiment results snapshot", 2, 1, 5, 278, 128],
+          ["Image moderation sweep", 3.5, 1, 2, 330, 94],
+          ["Warehouse compaction", 6, 1, 0, 301, 117],
+          ["Usage report build", 2.5, 2, 4, 291, 102]
+        ];
+        const jobs = completedSpecs.map((spec, index) => {
+          const [name, duration, daysAgo, hour, immediate, scheduled] = spec;
+          const start = new Date(base.getTime() - daysAgo * DAY_MS);
+          start.setHours(hour, index % 2 === 0 ? 30 : 0, 0, 0);
+          const end = new Date(start.getTime() + duration * 3600000);
+          const deadline = new Date(end.getTime() + 4 * 3600000);
+          const created = new Date(start.getTime() - 10 * 3600000);
+          const metrics = metricsFor(duration, immediate, scheduled);
+          return {
+            job_id: `demo-${String(index + 1).padStart(2, "0")}`,
+            name,
+            duration,
+            deadline: isoSeconds(deadline),
+            scheduled_start: isoSeconds(start),
+            scheduled_end: isoSeconds(end),
+            status: "COMPLETED",
+            avg_intensity: scheduled,
+            immediate_intensity: immediate,
+            energy_kwh: metrics.energy,
+            co2_now: metrics.co2Now,
+            co2_scheduled: metrics.co2Scheduled,
+            co2_saved: metrics.co2Saved,
+            reduction_pct: metrics.reduction,
+            forecast_source: "demo",
+            created_at: isoSeconds(created),
+            updated_at: isoSeconds(end),
+            started_at: isoSeconds(start),
+            completed_at: isoSeconds(end)
+          };
+        });
+
+        const runningStart = new Date(base.getTime() - 38 * 60000);
+        const runningEnd = new Date(runningStart.getTime() + 4 * 3600000);
+        const runningMetrics = metricsFor(4, 330, 205);
+        jobs.push({
+          job_id: "demo-12",
+          name: "Market data replay",
+          duration: 4,
+          deadline: isoSeconds(new Date(base.getTime() + 5 * 3600000)),
+          scheduled_start: isoSeconds(runningStart),
+          scheduled_end: isoSeconds(runningEnd),
+          status: "RUNNING",
+          avg_intensity: 205,
+          immediate_intensity: 330,
+          energy_kwh: runningMetrics.energy,
+          co2_now: runningMetrics.co2Now,
+          co2_scheduled: runningMetrics.co2Scheduled,
+          co2_saved: runningMetrics.co2Saved,
+          reduction_pct: runningMetrics.reduction,
+          forecast_source: "demo",
+          created_at: isoSeconds(new Date(base.getTime() - 4 * 3600000)),
+          updated_at: isoSeconds(runningStart),
+          started_at: isoSeconds(runningStart)
+        });
+
+        const queuedSpecs = [
+          ["Cohort model retrain", 12, 3, 322, 141],
+          ["Public dataset export", 8, 7, 305, 124],
+          ["Invoice PDF batch", 1, 2, 287, 118]
+        ];
+        queuedSpecs.forEach((spec, index) => {
+          const [name, duration, hoursAhead, immediate, scheduled] = spec;
+          const start = new Date(base.getTime() + hoursAhead * 3600000);
+          start.setSeconds(0, 0);
+          const minutes = start.getMinutes();
+          if (minutes !== 0 && minutes !== 30) start.setMinutes(minutes < 30 ? 30 : 60);
+          const end = new Date(start.getTime() + duration * 3600000);
+          const metrics = metricsFor(duration, immediate, scheduled);
+          jobs.push({
+            job_id: `demo-${String(13 + index).padStart(2, "0")}`,
+            name,
+            duration,
+            deadline: isoSeconds(new Date(end.getTime() + 6 * 3600000)),
+            scheduled_start: isoSeconds(start),
+            scheduled_end: isoSeconds(end),
+            status: "QUEUED",
+            avg_intensity: scheduled,
+            immediate_intensity: immediate,
+            energy_kwh: metrics.energy,
+            co2_now: metrics.co2Now,
+            co2_scheduled: metrics.co2Scheduled,
+            co2_saved: metrics.co2Saved,
+            reduction_pct: metrics.reduction,
+            forecast_source: "demo",
+            created_at: isoSeconds(new Date(base.getTime() - (index + 1) * 3600000)),
+            updated_at: isoSeconds(new Date(base.getTime() - (index + 1) * 3600000))
+          });
+        });
+        return jobs;
+      }
+
+      function enterPreview(reason) {
+        state.demoMode = true;
+        state.previewReason = reason;
+        state.forecast = buildMockForecast();
+        state.jobs = buildDemoJobs();
+      }
+
+      async function loadInitialData() {
+        state.loading = true;
+        setSystem("loading", "Connecting", "Connecting to the GreenQueue API.");
+        if (LIVE_API) {
+          try {
+            const [forecast, jobsPayload] = await Promise.all([
+              fetchJSON("/forecast"),
+              fetchJSON("/jobs")
+            ]);
+            if (!forecast || !Array.isArray(forecast.points) || forecast.points.length < 2) {
+              throw new Error("The forecast response was empty.");
+            }
+            state.forecast = forecast;
+            state.jobs = Array.isArray(jobsPayload && jobsPayload.jobs) ? jobsPayload.jobs : [];
+            state.demoMode = false;
+            state.previewReason = "";
+          } catch (error) {
+            enterPreview(`API unavailable: ${error.message}`);
+          }
+        } else {
+          enterPreview("This build is not connected to an API yet.");
+        }
+        state.loading = false;
+        renderAll();
+        updateSystemStatus();
+        startPolling();
+      }
+
+      function computeStats() {
+        const totalSavedG = state.jobs.reduce((total, job) => {
+          const value = Number(job.co2_saved);
+          return total + (Number.isFinite(value) ? value : 0);
+        }, 0);
+        const eligible = state.jobs.filter((job) => Number(job.co2_now) > 0);
+        const avgReduction = eligible.length
+          ? eligible.reduce((total, job) => {
+              const now = Number(job.co2_now);
+              const saved = Number(job.co2_saved);
+              if (!Number.isFinite(now) || !Number.isFinite(saved) || now <= 0) return total;
+              return total + (saved / now) * 100;
+            }, 0) / eligible.length
+          : 0;
+        return {
+          jobs: state.jobs.length,
+          co2Kg: totalSavedG / 1000,
+          avgReduction
+        };
+      }
+
+      function animateCounter(element, target, formatter, animate = true) {
+        const safeTarget = Number.isFinite(target) ? target : 0;
+        const start = Number(element.dataset.value || 0);
+        element.dataset.value = String(safeTarget);
+        if (element._raf) {
+          cancelAnimationFrame(element._raf);
+          element._raf = null;
+        }
+        if (!animate || prefersReduced || Math.abs(safeTarget - start) < 0.0001) {
+          element.textContent = formatter(safeTarget);
+          return;
+        }
+        const started = performance.now();
+        const duration = 850;
+        const step = (time) => {
+          const progress = clamp((time - started) / duration, 0, 1);
+          const eased = 1 - (1 - progress) ** 3;
+          element.textContent = formatter(start + (safeTarget - start) * eased);
+          if (progress < 1) {
+            element._raf = requestAnimationFrame(step);
+          } else {
+            element._raf = null;
+          }
+        };
+        element._raf = requestAnimationFrame(step);
+      }
+
+      function renderStats(animate = false) {
+        const stats = computeStats();
+        animateCounter(els.statCo2, stats.co2Kg, (value) => kgFormat.format(value), animate);
+        animateCounter(els.statJobs, stats.jobs, (value) => intFormat.format(value), animate);
+        animateCounter(els.statReduction, stats.avgReduction, (value) => String(Math.round(value)), animate);
+
+        const completed = state.jobs.filter((job) => job.status === "COMPLETED").length;
+        const inFlight = state.jobs.filter((job) => job.status === "QUEUED" || job.status === "RUNNING").length;
+        els.statCo2Sub.textContent = state.demoMode
+          ? "Preview totals, not persisted"
+          : "Projected across all jobs";
+        els.statJobsSub.textContent = state.jobs.length
+          ? `${completed} complete, ${inFlight} in flight`
+          : "Waiting for the queue";
+      }
+
+      function findBestWindow(points, needed, latestEnd = null) {
+        if (!Array.isArray(points) || points.length < needed || needed <= 0) return null;
+        const immediate = points.slice(0, needed);
+        const immediateAverage = immediate.reduce((sum, point) => sum + Number(point.intensity), 0) / needed;
+        let best = null;
+        const lastStart = points.length - needed;
+        for (let index = 0; index <= lastStart; index += 1) {
+          const window = points.slice(index, index + needed);
+          const start = parseDate(window[0].from);
+          const end = parseDate(window[window.length - 1].to);
+          if (!start || !end) continue;
+          if (latestEnd && end.getTime() > latestEnd) break;
+          const average = window.reduce((sum, point) => sum + Number(point.intensity), 0) / needed;
+          if (!best || average < best.average - 1e-9) {
+            best = {
+              index,
+              start,
+              end,
+              average,
+              immediateAverage,
+              reduction: immediateAverage > 0
+                ? Math.max(0, (1 - average / immediateAverage) * 100)
+                : 0
+            };
+          }
+        }
+        return best;
+      }
+
+      function renderHero() {
+        if (!state.forecast || !Array.isArray(state.forecast.points) || !state.forecast.points.length) {
+          els.windowTime.textContent = "—";
+          els.windowDate.textContent = "Forecast unavailable";
+          els.windowIntensity.textContent = "—";
+          els.windowReduction.textContent = "—";
+          return;
+        }
+
+        const points = state.forecast.points.slice(0, 48);
+        const now = Date.now();
+        const futurePoints = points.filter((point) => {
+          const from = parseDate(point.from);
+          return from && from.getTime() >= now - 60000;
+        });
+        const horizonEnd = points.length
+          ? new Date(points[points.length - 1].from).getTime() + 1800000
+          : null;
+        const best = findBestWindow(futurePoints, 8, horizonEnd);
+
+        if (!best) {
+          els.windowTime.textContent = "No clean window";
+          els.windowDate.textContent = "Not enough forecast left in this view";
+          els.windowIntensity.textContent = "—";
+          els.windowReduction.textContent = "—";
+        } else {
+          els.windowTime.textContent = formatWindow(best.start, best.end);
+          els.windowDate.textContent = formatDay(best.start);
+          els.windowIntensity.textContent = Math.round(best.average);
+          els.windowReduction.textContent = `${Math.round(best.reduction)}%`;
+        }
+
+        const isLive = state.forecast.source === "live";
+        els.windowSource.textContent = isLive ? "Live grid" : "Synthetic";
+        els.windowSource.dataset.source = isLive ? "live" : "mock";
+        els.windowStatus.textContent = isLive ? "Live grid data" : "Synthetic forecast";
+        els.windowUpdated.textContent = `Updated ${formatTime(state.forecast.fetched_at)}`;
+
+        renderStrip(futurePoints, best);
+      }
+
+      function renderStrip(points, best) {
+        els.strip.replaceChildren();
+        const limited = points.slice(0, 48);
+        if (!limited.length) {
+          els.strip.setAttribute("aria-label", "No forecast data available.");
+          return;
+        }
+        const maxValue = Math.max(...limited.map((point) => Number(point.intensity)));
+        const minValue = Math.min(...limited.map((point) => Number(point.intensity)));
+        const range = Math.max(1, maxValue - minValue);
+        let cleanest = limited[0];
+        let dirtiest = limited[0];
+        limited.forEach((point) => {
+          if (Number(point.intensity) < Number(cleanest.intensity)) cleanest = point;
+          if (Number(point.intensity) > Number(dirtiest.intensity)) dirtiest = point;
+        });
+
+        limited.forEach((point, index) => {
+          const bar = document.createElement("span");
+          const height = 9 + ((Number(point.intensity) - minValue) / range) * 43;
+          bar.className = "strip-bar";
+          bar.style.height = `${height.toFixed(1)}px`;
+          bar.style.background = intensityColor(point.intensity);
+          bar.style.setProperty("--i", String(index));
+          els.strip.append(bar);
+        });
+
+        if (best) {
+          let nearestIndex = -1;
+          let bestDistance = Infinity;
+          limited.forEach((point, index) => {
+            const from = parseDate(point.from);
+            if (!from) return;
+            const distance = Math.abs(from.getTime() - best.start.getTime());
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              nearestIndex = index;
+            }
+          });
+          if (nearestIndex >= 0) {
+            const highlight = document.createElement("span");
+            highlight.className = "strip-highlight";
+            highlight.style.left = `${(nearestIndex / limited.length) * 100}%`;
+            highlight.style.width = `${(8 / limited.length) * 100}%`;
+            els.strip.append(highlight);
+          }
+        }
+
+        els.strip.setAttribute(
+          "aria-label",
+          best
+            ? `Intensity over the next 24 hours. Cleanest window ${formatWindow(best.start, best.end)}, averaging ${Math.round(best.average)} grams per kilowatt hour. Highest ${Math.round(dirtiest.intensity)}.`
+            : `Intensity over the next 24 hours. Cleanest ${Math.round(cleanest.intensity)} grams per kilowatt hour; highest ${Math.round(dirtiest.intensity)}.`
+        );
+        els.stripLow.textContent = `Cleanest ${Math.round(cleanest.intensity)} g`;
+        els.stripHigh.textContent = `Highest ${Math.round(dirtiest.intensity)} g`;
+      }
+
+      function markerJobs() {
+        if (!state.forecast || !Array.isArray(state.forecast.points)) return [];
+        const points = state.forecast.points;
+        const labels = points.map((point) => point.from);
+        const markers = [];
+        state.jobs.forEach((job) => {
+          const start = parseDate(job.scheduled_start);
+          if (!start) return;
+          let index = -1;
+          let distance = Infinity;
+          points.forEach((point, pointIndex) => {
+            const from = parseDate(point.from);
+            if (!from) return;
+            const difference = Math.abs(from.getTime() - start.getTime());
+            if (difference < distance) {
+              distance = difference;
+              index = pointIndex;
+            }
+          });
+          if (index < 0 || distance > 30 * 60000) return;
+          markers.push({
+            x: labels[index],
+            y: Number(points[index].intensity),
+            jobId: job.job_id,
+            name: job.name || "Untitled job",
+            status: job.status || "QUEUED",
+            scheduledStart: job.scheduled_start,
+            scheduledEnd: job.scheduled_end,
+            co2Saved: Number(job.co2_saved) || 0
+          });
+        });
+        return markers;
+      }
+
+      function createChart() {
+        if (state.chart || state.chartFallback) return;
+        if (!window.Chart) {
+          state.chartFallback = true;
+          els.chart.hidden = true;
+          els.chartFallback.hidden = false;
+          return;
+        }
+
+        const canvas = els.chart;
+        const context = canvas.getContext("2d");
+        const labels = state.forecast.points.map((point) => point.from);
+        const values = state.forecast.points.map((point) => Number(point.intensity));
+        const markers = markerJobs();
+        const maxValue = Math.max(400, ...values);
+        const suggestedMax = Math.ceil(maxValue / 100) * 100;
+
+        const nowLine = {
+          id: "nowLine",
+          afterDraw(chart) {
+            const area = chart.chartArea;
+            if (!area) return;
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.strokeStyle = "rgba(154, 217, 248, 0.28)";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 6]);
+            ctx.beginPath();
+            ctx.moveTo(area.left + 0.5, area.top);
+            ctx.lineTo(area.left + 0.5, area.bottom);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = "rgba(207, 226, 218, 0.62)";
+            ctx.font = "10px 'Bricolage Grotesque', sans-serif";
+            ctx.fillText("now", area.left + 6, area.top + 11);
+            ctx.restore();
+          }
+        };
+
+        const activeStems = {
+          id: "activeStems",
+          afterDatasetsDraw(chart) {
+            if (!state.forecast || !Array.isArray(state.forecast.points)) return;
+            const points = state.forecast.points;
+            const currentLabels = chart.data.labels || [];
+            const active = state.jobs.filter((job) => job.status === "QUEUED" || job.status === "RUNNING");
+            const ctx = chart.ctx;
+            const xScale = chart.scales.x;
+            const yScale = chart.scales.y;
+            const area = chart.chartArea;
+            ctx.save();
+            active.forEach((job) => {
+              const start = parseDate(job.scheduled_start);
+              if (!start) return;
+              let index = -1;
+              let distance = Infinity;
+              points.forEach((point, pointIndex) => {
+                const from = parseDate(point.from);
+                if (!from) return;
+                const difference = Math.abs(from.getTime() - start.getTime());
+                if (difference < distance) {
+                  distance = difference;
+                  index = pointIndex;
+                }
+              });
+              if (index < 0 || distance > 30 * 60000) return;
+              const x = xScale.getPixelForValue(currentLabels[index]);
+              const y = yScale.getPixelForValue(Number(points[index].intensity));
+              if (!Number.isFinite(x) || !Number.isFinite(y) || x < area.left || x > area.right) return;
+              ctx.strokeStyle = job.status === "RUNNING"
+                ? "rgba(235, 203, 103, 0.26)"
+                : "rgba(154, 217, 248, 0.22)";
+              ctx.lineWidth = 1;
+              ctx.setLineDash([2, 5]);
+              ctx.beginPath();
+              ctx.moveTo(x, y + 8);
+              ctx.lineTo(x, area.bottom);
+              ctx.stroke();
+            });
+            ctx.restore();
+          }
+        };
+
+        state.chart = new Chart(context, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Carbon intensity",
+                data: values,
+                borderWidth: 1.8,
+                fill: "origin",
+                tension: 0.34,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHoverBackgroundColor: "#f2f0e6",
+                pointHoverBorderColor: "#06110e",
+                pointHitRadius: 10,
+                segment: {
+                  borderColor: (segmentContext) => {
+                    const p0 = segmentContext.p0.parsed.y;
+                    const p1 = segmentContext.p1.parsed.y;
+                    return intensityColor((p0 + p1) / 2);
+                  }
+                },
+                backgroundColor: (fillContext) => {
+                  const chart = fillContext.chart;
+                  const area = chart.chartArea;
+                  if (!area) return "rgba(95, 221, 170, 0.08)";
+                  const yScale = chart.scales.y;
+                  const gradient = chart.ctx.createLinearGradient(0, area.bottom, 0, area.top);
+                  const range = Math.max(1, yScale.max - yScale.min);
+                  const stops = [
+                    [0, "rgba(95, 221, 170, 0.34)"],
+                    [100, "rgba(95, 221, 170, 0.22)"],
+                    [200, "rgba(235, 203, 103, 0.14)"],
+                    [300, "rgba(240, 138, 91, 0.18)"],
+                    [400, "rgba(232, 93, 85, 0.23)"]
+                  ];
+                  stops.forEach(([value, color]) => {
+                    const position = clamp((value - yScale.min) / range, 0, 1);
+                    gradient.addColorStop(position, color);
+                  });
+                  return gradient;
+                }
+              },
+              {
+                type: "scatter",
+                label: "Scheduled jobs",
+                data: markers,
+                showLine: false,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                pointBorderWidth: 1.5,
+                pointBorderColor: "#07110e",
+                pointBackgroundColor: (pointContext) => {
+                  const raw = pointContext.raw;
+                  return STATUS_COLORS[(raw && raw.status) || "QUEUED"] || STATUS_COLORS.QUEUED;
+                },
+                pointHitRadius: 12
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            resizeDelay: 80,
+            animation: prefersReduced ? false : {
+              duration: 900,
+              easing: "easeOutQuart"
+            },
+            interaction: { mode: "nearest", intersect: true },
+            layout: { padding: { top: 12, right: 8, bottom: 0, left: 0 } },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                displayColors: false,
+                backgroundColor: "#0b1b16",
+                borderColor: "rgba(230, 240, 232, 0.18)",
+                borderWidth: 1,
+                titleColor: "#f2f0e6",
+                bodyColor: "#9fb0a6",
+                padding: 11,
+                cornerRadius: 4,
+                titleFont: {
+                  family: "'Bricolage Grotesque', sans-serif",
+                  size: 11,
+                  weight: "500"
+                },
+                bodyFont: {
+                  family: "'Bricolage Grotesque', sans-serif",
+                  size: 11
+                },
+                callbacks: {
+                  title: (items) => {
+                    if (!items.length) return "";
+                    const item = items[0];
+                    if (item.raw && item.raw.jobId) {
+                      return item.raw.name;
+                    }
+                    const label = state.chart && state.chart.data.labels[item.dataIndex];
+                    return label ? formatFull(label) : "";
+                  },
+                  label: (item) => {
+                    if (item.raw && item.raw.jobId) {
+                      const job = item.raw;
+                      const saving = job.co2Saved / 1000;
+                      return [
+                        `${STATUS_LABELS[job.status] || job.status} · ${formatWindow(job.scheduledStart, job.scheduledEnd)}`,
+                        `${saving.toFixed(2)} kg CO₂ avoided`
+                      ];
+                    }
+                    const value = Number(item.parsed.y);
+                    return [
+                      `${Math.round(value)} gCO₂/kWh`,
+                      `${intensityLabel(value)} intensity`
+                    ];
+                  }
+                }
+              }
+            },
+            scales: {
+              x: {
+                type: "category",
+                grid: { display: false },
+                border: { display: false },
+                ticks: {
+                  color: "#71857a",
+                  maxTicksLimit: window.innerWidth < 640 ? 5 : 8,
+                  autoSkip: true,
+                  maxRotation: 0,
+                  padding: 8,
+                  font: {
+                    family: "'Bricolage Grotesque', sans-serif",
+                    size: 10
+                  },
+                  callback(value) {
+                    const label = this.getLabelForValue(value);
+                    const date = parseDate(label);
+                    if (!date) return "";
+                    if (date.getHours() === 0) return formatDay(date);
+                    return formatTime(date);
+                  }
+                }
+              },
+              y: {
+                min: 0,
+                suggestedMax,
+                grid: {
+                  color: "rgba(230, 240, 232, 0.065)",
+                  drawTicks: false
+                },
+                border: { display: false },
+                ticks: {
+                  color: "#71857a",
+                  padding: 10,
+                  stepSize: 100,
+                  font: {
+                    family: "'Bricolage Grotesque', sans-serif",
+                    size: 10
+                  },
+                  callback: (value) => `${value}`
+                }
+              }
+            }
+          },
+          plugins: [nowLine, activeStems]
+        });
+
+        updateChartMeta();
+      }
+
+      function updateChart(animate = false) {
+        if (!state.forecast || !Array.isArray(state.forecast.points)) return;
+        if (!state.chart) {
+          createChart();
+          return;
+        }
+        const points = state.forecast.points;
+        const labels = points.map((point) => point.from);
+        const values = points.map((point) => Number(point.intensity));
+        const markers = markerJobs();
+        state.chart.data.labels = labels;
+        state.chart.data.datasets[0].data = values;
+        state.chart.data.datasets[1].data = markers;
+        const suggestedMax = Math.ceil(Math.max(400, ...values) / 100) * 100;
+        state.chart.options.scales.y.suggestedMax = suggestedMax;
+        state.chart.update(animate && !prefersReduced ? undefined : "none");
+        updateChartMeta();
+      }
+
+      function updateChartMeta() {
+        if (!state.forecast || !Array.isArray(state.forecast.points) || !state.forecast.points.length) {
+          els.chartNote.textContent = "Forecast unavailable.";
+          return;
+        }
+        const points = state.forecast.points;
+        const peak = points.reduce((best, point) =>
+          Number(point.intensity) > Number(best.intensity) ? point : best
+        , points[0]);
+        const low = points.reduce((best, point) =>
+          Number(point.intensity) < Number(best.intensity) ? point : best
+        , points[0]);
+        const markerCount = markerJobs().length;
+        const source = state.forecast.source === "live"
+          ? "Live UK Carbon Intensity API."
+          : state.demoMode
+            ? "Synthetic preview forecast."
+            : "Synthetic fallback forecast.";
+        els.chartNote.textContent = `${source} Peak ${Math.round(peak.intensity)} at ${formatTime(peak.from)}; lowest ${Math.round(low.intensity)} at ${formatTime(low.from)}. ${markerCount} ${markerCount === 1 ? "job" : "jobs"} marked in this window.`;
+        els.chart.setAttribute(
+          "aria-label",
+          `48-hour carbon intensity forecast. Peak ${Math.round(peak.intensity)} grams per kilowatt hour at ${formatFull(peak.from)}. ${markerCount} scheduled jobs marked.`
+        );
+      }
+
+      function makeElement(tag, className, text) {
+        const element = document.createElement(tag);
+        if (className) element.className = className;
+        if (text !== undefined) element.textContent = text;
+        return element;
+      }
+
+      function sortedJobs() {
+        const rank = { RUNNING: 0, QUEUED: 1, COMPLETED: 2 };
+        return state.jobs.slice().sort((a, b) => {
+          const statusA = rank[a.status] ?? 3;
+          const statusB = rank[b.status] ?? 3;
+          if (statusA !== statusB) return statusA - statusB;
+          const timeA = parseDate(a.scheduled_start);
+          const timeB = parseDate(b.scheduled_start);
+          if (!timeA && !timeB) return 0;
+          if (!timeA) return 1;
+          if (!timeB) return -1;
+          return a.status === "COMPLETED"
+            ? timeB.getTime() - timeA.getTime()
+            : timeA.getTime() - timeB.getTime();
+        });
+      }
+
+      function renderJobs() {
+        const jobs = sortedJobs();
+        const fragment = document.createDocumentFragment();
+
+        jobs.forEach((job) => {
+          const tr = document.createElement("tr");
+          if (state.newJobId && job.job_id === state.newJobId) tr.classList.add("is-new");
+          tr.id = `job-row-${job.job_id}`;
+
+          const jobCell = document.createElement("td");
+          jobCell.className = "cell-job";
+          jobCell.dataset.label = "Job";
+          jobCell.append(makeElement("div", "job-name", job.name || "Untitled job"));
+          const meta = makeElement("div", "job-meta");
+          meta.append(makeElement("span", "", `Due ${formatFull(job.deadline)}`));
+          meta.append(makeElement("span", "", `Submitted ${relativeTime(job.created_at)}`));
+          jobCell.append(meta);
+
+          const windowCell = document.createElement("td");
+          windowCell.className = "cell-window";
+          windowCell.dataset.label = "Window";
+          const windowWrap = makeElement("div", "window-cell");
+          windowWrap.append(makeElement("strong", "", formatWindow(job.scheduled_start, job.scheduled_end)));
+          windowWrap.append(makeElement("span", "", formatDay(job.scheduled_start)));
+          windowCell.append(windowWrap);
+
+          const statusCell = document.createElement("td");
+          statusCell.className = "cell-status";
+          statusCell.dataset.label = "Status";
+          const status = String(job.status || "QUEUED").toUpperCase();
+          const badge = makeElement("span", "status-badge", STATUS_LABELS[status] || status);
+          badge.dataset.status = status.toLowerCase();
+          statusCell.append(badge);
+
+          const savingsCell = document.createElement("td");
+          savingsCell.className = "cell-savings";
+          savingsCell.dataset.label = "CO₂ avoided";
+          const savings = makeElement("div", "savings");
+          const savedKg = Math.max(0, Number(job.co2_saved) || 0) / 1000;
+          const reduction = Number(job.reduction_pct);
+          savings.append(makeElement("strong", "", `${savedKg.toFixed(2)} kg`));
+          savings.append(makeElement("span", "", Number.isFinite(reduction) ? `${Math.round(reduction)}% less` : "Projected"));
+          if (status === "QUEUED") savings.title = "Projected saving once this job runs";
+          savingsCell.append(savings);
+
+          tr.append(jobCell, windowCell, statusCell, savingsCell);
+          fragment.append(tr);
+        });
+
+        els.jobsBody.replaceChildren(fragment);
+        els.jobsCount.textContent = `${jobs.length} ${jobs.length === 1 ? "job" : "jobs"}`;
+        els.jobsTable.hidden = jobs.length === 0;
+        els.jobsEmpty.hidden = jobs.length > 0;
+        els.jobsMessage.textContent = state.demoMode
+          ? "Preview data only. Jobs submitted here stay in this browser tab."
+          : jobs.length
+            ? "Statuses refresh automatically while this page is open."
+            : "";
+
+        if (state.newJobId) {
+          const id = state.newJobId;
+          clearTimeout(state.newJobTimer);
+          state.newJobTimer = setTimeout(() => {
+            state.newJobId = null;
+            const row = document.getElementById(`job-row-${id}`);
+            if (row) row.classList.remove("is-new");
+          }, 4000);
+        }
+      }
+
+      function renderAll() {
+        renderHero();
+        renderStats(true);
+        renderJobs();
+        if (!state.chart) {
+          createChart();
+        } else {
+          updateChart();
+        }
+        updateChartMeta();
+        updateFormMode();
+        els.refresh.disabled = state.demoMode;
+        els.refresh.title = state.demoMode ? "Connect the API to refresh live data." : "Refresh jobs and forecast";
+      }
+
+      function updateFormMode() {
+        if (state.demoMode) {
+          els.formNote.textContent = "Preview only. Submissions stay in this tab. CO₂ assumes 100W per job-hour.";
+        } else if (state.forecast && state.forecast.source === "mock") {
+          els.formNote.textContent = "Synthetic forecast in use. Jobs are still saved. CO₂ assumes 100W per job-hour.";
+        } else {
+          els.formNote.textContent = "CO₂ assumes 100W per job-hour. Execution is simulated for this demo.";
+        }
+      }
+
+      function clearFieldError(fieldName) {
+        const input = els[fieldName];
+        const error = document.getElementById(`${fieldName}-error`);
+        if (input) input.removeAttribute("aria-invalid");
+        if (error) error.textContent = "";
+      }
+
+      function setFieldError(fieldName, message) {
+        const input = els[fieldName];
+        const error = document.getElementById(`${fieldName}-error`);
+        if (input) input.setAttribute("aria-invalid", "true");
+        if (error) error.textContent = message;
+      }
+
+      function clearFormErrors() {
+        ["name", "duration", "deadline"].forEach(clearFieldError);
+        els.formError.textContent = "";
+      }
+
+      function validateForm() {
+        clearFormErrors();
+        let firstInvalid = null;
+        const name = els.name.value.trim().replace(/\s+/g, " ");
+        if (!name) {
+          setFieldError("name", "Give the job a name.");
+          firstInvalid = firstInvalid || els.name;
+        } else if (name.length > 80) {
+          setFieldError("name", "Keep the name under 80 characters.");
+          firstInvalid = firstInvalid || els.name;
+        }
+
+        const duration = Number(els.duration.value);
+        const durationValid = Number.isFinite(duration) && duration >= 0.5 && duration <= 24 && Math.abs(duration * 2 - Math.round(duration * 2)) < 1e-9;
+        if (!durationValid) {
+          setFieldError("duration", "Choose 0.5 to 24 hours in 30-minute steps.");
+          firstInvalid = firstInvalid || els.duration;
+        }
+
+        const deadline = els.deadline.value ? new Date(els.deadline.value) : null;
+        if (!deadline || !Number.isFinite(deadline.getTime())) {
+          setFieldError("deadline", "Choose a finish time.");
+          firstInvalid = firstInvalid || els.deadline;
+        } else if (deadline.getTime() <= Date.now()) {
+          setFieldError("deadline", "The deadline must be in the future.");
+          firstInvalid = firstInvalid || els.deadline;
+        } else if (durationValid && deadline.getTime() < Date.now() + duration * 3600000) {
+          setFieldError("deadline", "The deadline is too soon for this job to finish.");
+          firstInvalid = firstInvalid || els.deadline;
+        }
+
+        if (firstInvalid) {
+          els.formError.textContent = "Fix the highlighted fields to continue.";
+          firstInvalid.focus();
+          return null;
+        }
+        return {
+          name,
+          duration,
+          deadline: deadline.toISOString()
+        };
+      }
+
+      function planLocally(duration, deadlineValue) {
+        const now = Date.now();
+        const deadline = new Date(deadlineValue).getTime();
+        const points = (state.forecast && state.forecast.points ? state.forecast.points : [])
+          .filter((point) => {
+            const from = parseDate(point.from);
+            return from && from.getTime() >= now - 60000;
+          });
+        const needed = Math.round(duration * 2);
+        if (needed < 1 || points.length < needed) {
+          throw new Error("Not enough forecast left to place this job. Refresh the page.");
+        }
+        const best = findBestWindow(points, needed, deadline);
+        if (!best) {
+          throw new Error("No clean window fits before that deadline. Move it later or shorten the job.");
+        }
+        const metrics = metricsFor(duration, best.immediateAverage, best.average);
+        return {
+          scheduled_start: isoSeconds(best.start),
+          scheduled_end: isoSeconds(new Date(best.start.getTime() + duration * 3600000)),
+          avg_intensity: Math.round(best.average * 10) / 10,
+          immediate_intensity: Math.round(best.immediateAverage * 10) / 10,
+          energy_kwh: metrics.energy,
+          co2_now: metrics.co2Now,
+          co2_scheduled: metrics.co2Scheduled,
+          co2_saved: metrics.co2Saved,
+          reduction_pct: metrics.reduction,
+          forecast_source: "preview"
+        };
+      }
+
+      function buildPreviewJob(payload) {
+        const plan = planLocally(payload.duration, payload.deadline);
+        return {
+          job_id: `preview-${Date.now().toString(36)}`,
+          name: payload.name,
+          duration: payload.duration,
+          deadline: isoSeconds(payload.deadline),
+          scheduled_start: plan.scheduled_start,
+          scheduled_end: plan.scheduled_end,
+          status: "QUEUED",
+          avg_intensity: plan.avg_intensity,
+          immediate_intensity: plan.immediate_intensity,
+          energy_kwh: plan.energy_kwh,
+          co2_now: plan.co2_now,
+          co2_scheduled: plan.co2_scheduled,
+          co2_saved: plan.co2_saved,
+          reduction_pct: plan.reduction_pct,
+          forecast_source: "preview",
+          created_at: isoSeconds(new Date()),
+          updated_at: isoSeconds(new Date())
+        };
+      }
+
+      function setSubmitting(isSubmitting) {
+        state.submitting = isSubmitting;
+        els.submit.disabled = isSubmitting;
+        els.submit.classList.toggle("is-loading", isSubmitting);
+        els.submit.querySelector(".btn-label").textContent = isSubmitting
+          ? "Finding the cleanest window"
+          : "Schedule job";
+      }
+
+      function showSuccess(job, preview) {
+        els.form.hidden = true;
+        els.successPanel.hidden = false;
+        els.successTitle.textContent = "Scheduled into the clean window.";
+        els.successCopy.textContent = `“${job.name}” is queued for ${formatWindow(job.scheduled_start, job.scheduled_end)} on ${formatDay(job.scheduled_start)}.`;
+        els.successWindow.textContent = formatWindow(job.scheduled_start, job.scheduled_end);
+        els.successDate.textContent = formatDay(job.scheduled_start);
+        const savedKg = Math.max(0, Number(job.co2_saved) || 0) / 1000;
+        const reduction = Math.round(Number(job.reduction_pct) || 0);
+        els.successMetric.textContent = Number(job.co2_saved) > 0
+          ? `You avoided ${savedKg.toFixed(2)} kg CO₂, ${reduction}% less than running now.`
+          : "The grid is already clean. This job runs in the next available window.";
+        els.successPreview.hidden = !preview;
+        els.successPreview.textContent = preview
+          ? "Preview only. The API was not reachable, so this job is not stored."
+          : "";
+        els.successTitle.focus();
+      }
+
+      function resetForm() {
+        els.successPanel.hidden = true;
+        els.form.hidden = false;
+        els.form.reset();
+        els.duration.value = "4";
+        setDefaultDeadline();
+        clearFormErrors();
+        setSubmitting(false);
+        updateDeadlineHint();
+        updateFormMode();
+        els.name.focus();
+      }
+
+      async function handleSubmit(event) {
+        event.preventDefault();
+        if (state.submitting) return;
+        const payload = validateForm();
+        if (!payload) return;
+
+        setSubmitting(true);
+        els.formError.textContent = "";
+        try {
+          if (state.demoMode) {
+            await new Promise((resolve) => setTimeout(resolve, 450));
+            const job = buildPreviewJob(payload);
+            state.jobs = [job, ...state.jobs.filter((existing) => existing.job_id !== job.job_id)];
+            state.newJobId = job.job_id;
+            renderStats(true);
+            renderJobs();
+            updateChart(true);
+            showSuccess(job, true);
+          } else {
+            const data = await fetchJSON("/jobs", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            }, 14000);
+            const job = data && data.job;
+            if (!job) throw new Error("The scheduler returned an empty job.");
+            state.jobs = [job, ...state.jobs.filter((existing) => existing.job_id !== job.job_id)];
+            state.newJobId = job.job_id;
+            renderStats(true);
+            renderJobs();
+            updateChart(true);
+            showSuccess(job, false);
+          }
+        } catch (error) {
+          if (error instanceof HttpError && error.fields) {
+            Object.entries(error.fields).forEach(([field, message]) => {
+              if (["name", "duration", "deadline"].includes(field)) setFieldError(field, message);
+            });
+            els.formError.textContent = error.message;
+            const first = ["name", "duration", "deadline"].find((field) => error.fields[field]);
+            if (first) els[first].focus();
+          } else {
+            els.formError.textContent = error.message || "The job could not be scheduled. Try again.";
+          }
+        } finally {
+          setSubmitting(false);
+        }
+      }
+
+      async function refreshJobs(manual = false) {
+        if (state.demoMode || state.loading || state.refreshing) return;
+        state.refreshing = true;
+        els.refresh.classList.add("is-spinning");
+        try {
+          const data = await fetchJSON("/jobs");
+          state.jobs = Array.isArray(data && data.jobs) ? data.jobs : [];
+          renderStats(false);
+          renderJobs();
+          updateChart(false);
+          updateSystemStatus();
+        } catch (error) {
+          setSystem("error", "Reconnecting", error.message || "The API could not be reached.");
+          if (manual) els.jobsMessage.textContent = error.message || "Refresh failed.";
+        } finally {
+          state.refreshing = false;
+          els.refresh.classList.remove("is-spinning");
+        }
+      }
+
+      async function refreshForecast() {
+        if (state.demoMode || state.loading) return;
+        try {
+          const forecast = await fetchJSON("/forecast");
+          if (!forecast || !Array.isArray(forecast.points) || forecast.points.length < 2) return;
+          state.forecast = forecast;
+          renderHero();
+          updateChart(false);
+          updateFormMode();
+          updateSystemStatus();
+        } catch (error) {
+          setSystem("error", "Reconnecting", error.message || "The forecast could not be refreshed.");
+        }
+      }
+
+      async function refreshAll() {
+        if (state.demoMode) return;
+        await Promise.all([refreshJobs(true), refreshForecast()]);
+      }
+
+      function startPolling() {
+        clearInterval(state.pollTimer);
+        clearInterval(state.forecastTimer);
+        if (state.demoMode) return;
+        state.pollTimer = setInterval(() => {
+          if (!document.hidden) refreshJobs();
+        }, POLL_MS);
+        state.forecastTimer = setInterval(() => {
+          if (!document.hidden) refreshForecast();
+        }, FORECAST_MS);
+      }
+
+      function bindEvents() {
+        els.form.addEventListener("submit", handleSubmit);
+        els.form.addEventListener("input", (event) => {
+          const field = event.target && event.target.name;
+          if (["name", "duration", "deadline"].includes(field)) clearFieldError(field);
+        });
+        els.duration.addEventListener("input", updateDeadlineHint);
+        els.scheduleAnother.addEventListener("click", resetForm);
+        els.refresh.addEventListener("click", refreshAll);
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden && !state.demoMode) refreshJobs();
+        });
+      }
+
+      function init() {
+        bindEvents();
+        setDefaultDeadline();
+        updateDeadlineHint();
+        loadInitialData();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+</body>
+</html>

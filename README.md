@@ -166,7 +166,8 @@ GreenQueue/
 ## How the planner works
 
 1. Fetch the next 96 half-hour points from
-   `https://api.carbonintensity.org.uk/intensity/{from}/fwd48h`.
+   `https://api.carbonintensity.org.uk/intensity/{from}/fw48h`
+   (the API's documented forward-window path).
 2. Drop points that begin before now.
 3. Validate the job: duration is 0.5–24 hours in 30-minute steps; the deadline
    must be in the future and at least one full job-length away.

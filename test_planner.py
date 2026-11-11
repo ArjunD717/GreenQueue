@@ -1,5 +1,6 @@
 """Local tests for the carbon-aware planner. Run: python test_planner.py -v"""
 
+import json
 import os
 import sys
 import unittest
@@ -89,6 +90,41 @@ class PlannerTests(unittest.TestCase):
             with patch("planner.urlopen", side_effect=URLError("offline")):
                 forecast = planner.fetch_forecast(NOW)
         self.assertIn("offline", forecast["fallback_reason"])
+
+    def test_live_forecast_parses_and_filters_past_points(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+        points = []
+        for index in range(10):
+            start = NOW + timedelta(minutes=30 * index)
+            points.append(
+                {
+                    "from": start.strftime("%Y-%m-%dT%H:%MZ"),
+                    "to": (start + timedelta(minutes=30)).strftime(
+                        "%Y-%m-%dT%H:%MZ"
+                    ),
+                    "intensity": {"forecast": 100 + index, "index": "moderate"},
+                }
+            )
+        with patch.dict(os.environ, {"MOCK_MODE": "false"}):
+            with patch("planner.urlopen", return_value=FakeResponse({"data": points})) as mocked:
+                forecast = planner.fetch_forecast(NOW)
+
+        self.assertEqual(forecast["source"], "live")
+        self.assertEqual(len(forecast["points"]), 10)
+        self.assertGreaterEqual(forecast["points"][0]["from"], planner.iso_z(NOW))
+        self.assertIn("/fw48h", mocked.call_args.args[0].full_url)
 
     def test_immediate_window_cannot_beat_scheduled_window(self):
         result = planner.plan_job(3, NOW + timedelta(hours=26), now=NOW)

@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 
 from common import iso_z, parse_utc, utcnow
 
-CARBON_API = "https://api.carbonintensity.org.uk/intensity/{start}/fwd48h"
+CARBON_API = "https://api.carbonintensity.org.uk/intensity/{start}/fw48h"
 SLOT_MINUTES = 30
 FORECAST_HOURS = 48
 MIN_DURATION_HOURS = 0.5
